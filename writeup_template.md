@@ -1,10 +1,8 @@
-
-
 ## 行为克隆
 
 整个克隆的流程如下：
-* 使用模拟器采集数据
-* 数据处理
+* 使用模拟器采集数据，使用的是udacity提供的数据
+* 数据处理，获取更多的数据
 * 建立模型
 * 训练模型和模型测试
 * 在模拟器中测试模型
@@ -13,19 +11,68 @@
 
 
 
-
-
 1. 使用模拟器采集数据
 
-   > 使车辆在track1中心跑一圈，在车道的右边跑一圈，向车道的反方向中心跑一圈。后来发现在车辆在第二个左转弯的处没有转过去，重新记录了一遍在此处的数据（哪个地方不会，就多教教它）。
+   > 使车辆在track1中心跑一圈，在车道的右边跑一圈，向车道的反方向中心跑一圈。后来发现在车辆在第二个左转弯的处没有转过去，重新记录了一遍在此处的数据（哪个地方不会，就多教教它），但是采集的数据训练之后效果都不好，后面使用的是udacity提供的数据。
    >
-   > 采集的数据主要包括转向角度和图片，转向角度存于data/driving_log.csv文件，图片存于data/IMG文件夹下，使用图片作为输入数据，转动角度作为输出数据。
 
-   ![1](imgs/1.jpg)
+   ![](imgs/1.jpg)
 
-2. 数据预处理
+2. 为了得到更多的数据，对原始数据进行了扩充。
 
-   >读入转向角数据
+   > 图片随机进行水平翻转，同时角度变为反方向值。
+
+   ```python
+   def random_img_flip(img, angle):
+       """
+       图像水平翻转
+       :param img: 
+       :param angles: 
+       :return: 
+       """
+
+       rand = np.random.rand()
+       if rand > 0.5:
+           img = cv2.flip(img, 1)
+           angle = -angle
+       return img, angle
+   ```
+
+   ![](./imgs/2.jpg)![](./imgs/3.jpg)
+
+   ​           			 原始图像								水平翻转后的图像
+
+   >  保留左右摄像头拍摄的图片，随机获取左，中，右中的一张图片，且左边角度加0.2，中间不变，右边减0.2。
+
+   ```python
+   def random_img_choose(sample):
+       """
+       加载图像，可能是左，中，右其中一个
+       :return: 
+       """
+       choice = np.random.choice(3, 1)
+       if choice == 0:
+           name = './data/IMG/' + sample[0].split("/")[-1]
+           center_image = cv2.imread(name)
+           center_angle = float(sample[3])
+       elif choice == 1:
+           name = './data/IMG/' + sample[1].split("/")[-1]
+           center_image = cv2.imread(name)
+           center_angle = float(sample[3]) + 0.2
+       else:
+           name = './data/IMG/' + sample[2].split("/")[-1]
+           center_image = cv2.imread(name)
+           center_angle = float(sample[3]) - 0.2
+       return center_image, center_angle
+   ```
+
+   ![](./imgs/4_left.jpg)![](./imgs/4_center.jpg)![](./imgs/4_right.jpg)
+
+   如上的图片分别为左，中，右摄像头采集的图像数据。
+
+3. 数据预处理
+
+   >读入数据
 
    ```python
    import csv
@@ -56,32 +103,38 @@
    > 为了节省内存，使用了生成器，且对每一批次的数据，这样就不用把所有的图像数据一次性放入内存中，需要的时候再取。
 
    ```python
-   def generator(samples, batch_size=32):
-       """
-       数据生成器
-       """
-       
-       num_samples = len(samples)
-       while 1:  # Loop forever so the generator never terminates
-           for offset in range(0, num_samples, batch_size):
-               batch_samples = samples[offset:offset + batch_size]
-               images = []
-               angles = []
-               for i, batch_sample in enumerate(batch_samples):
-                   name = './nnn/IMG/' + batch_sample[0].split('/')[-1]
-                   center_image = cv2.imread(name)
-                   center_angle = float(batch_sample[3])
-                   images.append(center_image)
-                   angles.append(center_angle)
-                   # trim image to only see section with  road
-               yield shuffle(np.array(images), np.array(angles))
+   def next_batch(samples, batch_size=32):                                    
+       """                                                                    
+       获取一个批次的数据                                                              
+                                                                              
+       :param samples:                                                        
+       :param batch_size:                                                     
+       :return:                                                               
+       """                                                                    
+                                                                              
+       shuffle(samples)                                                       
+       num_samples = len(samples)                                             
+       while 1:  # Loop forever so the generator never terminates             
+           for offset in range(0, num_samples, batch_size):                   
+               batch_samples = samples[offset:offset + batch_size]            
+               images = []                                                    
+               angles = []                                                    
+               for i, sample in enumerate(batch_samples):                     
+                   img, angle = random_img_choose(sample)                     
+                   img, angle = random_img_flip(img, angle)                   
+                   images.append(img)                                         
+                   angles.append(angle)                                       
+           yield shuffle(np.array(images), np.array(angles))                  
+                                                                              
    ```
 
-3. 建立模型
+4. 建立模型
 
    > 使用keras能快速建立模型，模型结构从如下代码观察一目了然。	
    >
-   > 注意：对图像的上下部分进行了裁剪，保留了主要信息。
+   > 该模型使用的是NVIDA的模型，这个模型是经过检测的，所以结果很不错。自己构建的模型和这个差距很大。
+   >
+   > 注意：在模型内部对数据进行了裁剪和归一化处理。
 
    ```python
    from keras.layers.core import Flatten, Dense, Activation
@@ -91,26 +144,38 @@
    from keras import backend as K
    from keras.layers import Lambda
 
-   def create_model_architecture():
-       model = Sequential()
-       model.add(Lambda(lambda x: x / 255 - 0.5, input_shape=(160, 320, 3)))
-       model.add(Cropping2D(cropping=((70, 25), (0, 0))))
-       model.add(Convolution2D(24, 5, 5, subsample=(2, 2)))
-       model.add(Activation('relu'))
-       model.add(Convolution2D(36, 5, 5, subsample=(2, 2)))
-       model.add(Activation('relu'))
-       model.add(Convolution2D(48, 5, 5, subsample=(2, 2)))
-       model.add(Activation('relu'))
-       model.add(Convolution2D(64, 3, 3))
-       model.add(Activation('relu'))
-       model.add(Convolution2D(84, 3, 3))
-       model.add(Activation('relu'))
-       model.add(Flatten())
-       model.add(Dense(100))
-       model.add(Dense(50))
-       model.add(Dense(10))
-       model.add(Dense(1))
-       return model
+   # 建立模型，训练                                                             
+   def create_model_architecture():                                      
+       """                                                               
+       创建训练模型,参考NVIDA                                                    
+       :return:                                                          
+       """                                                               
+       model = Sequential()                                              
+       model.add(Lambda(lambda x: x / 255 - 0.5, input_shape=(160, 320, 3
+       model.add(Cropping2D(cropping=((60, 20), (0, 0))))                
+       model.add(Convolution2D(24, 5, 5, subsample=(2, 2)))              
+       model.add(Activation('relu'))                                     
+       model.add(Convolution2D(36, 5, 5, subsample=(2, 2)))              
+       model.add(Activation('relu'))                                     
+       model.add(Convolution2D(48, 5, 5, subsample=(2, 2)))              
+       model.add(Activation('relu'))                                     
+       model.add(Convolution2D(64, 3, 3))                                
+       model.add(Activation('relu'))                                     
+       model.add(Convolution2D(64, 3, 3))                                
+       model.add(Activation('relu'))                                     
+       model.add(Dropout(0.5))                                           
+       model.add(Flatten())                                              
+       model.add(Dense(1164))                                            
+       model.add(Activation('relu'))                                     
+       model.add(Dense(100))                                             
+       model.add(Activation('relu'))                                     
+       model.add(Dense(50))                                              
+       model.add(Activation('relu'))                                     
+       model.add(Dense(10))                                              
+       model.add(Activation('relu'))                                     
+       model.add(Dense(1))                                               
+       model.summary()                                                   
+       return model                                                      
    ```
 
 4. 训练和测试模型
@@ -130,21 +195,45 @@
    > ​				verbose：输出显示信息，可以为1或2							
 
    ```python
-   # 训练数据集生成器和测试数据集生成器
-   train_generator = generator(train_samples, batch_size=64)
-   validation_generator = generator(validation_samples, batch_size=64)
-
-   # 使用mse求损失函数，使用adam优化器。
-   model.compile(loss='mse', optimizer='adam')
-   model.fit_generator(train_generator, steps_per_epoch=len(train_samples) / 64, 				validation_data=validation_generator,validation_steps=len(validation_samples) / 		64, nb_epoch=5, verbose=1)
-
-   model.save('model.h5')
-
-   # 前面导入backend，在模型调用结束时清空一下。
-   K.clear_session()
+   def train_model(model, train_generator, validation_generator):
+       """
+       训练模型
+    :param model: 
+       :param train_generator: 
+       :param validation_generator: 
+       :return: 
+    """
+       model.compile(loss='mse', optimizer='adam')
+    model.fit_generator(train_generator, steps_per_epoch=len(train_samples) / 64, validation_data=validation_generator,
+                           validation_steps=len(validation_samples) / 64, nb_epoch=5, verbose=1)
+   
    ```
 
-5. 把模型放到模拟器中进行测试
+6. 执行main方法
+
+   ```python
+   if __name__ == '__main__':
+       samples = read_lines()
+       # 打乱一下数据
+       samples = shuffle(samples)
+       # 把数据拆分为训练集和验证集
+       train_samples, validation_samples = train_test_split(samples, test_size=0.2)
+       # 建立测试集和验证集数据生成器
+       train_generator = next_batch(train_samples, batch_size=64)
+       validation_generator = next_batch(validation_samples, batch_size=64)
+       # 建立模型
+       model = create_model_architecture()
+       # 训练模型             
+       train_model(model, train_generator, validation_generator)
+       # 保存训练模型
+       model.save('model.h5')
+       # 前面导入backend，在模型调用结束时清空一下。
+       K.clear_session()
+   ```
+
+   ​
+
+7. 把模型放到模拟器中进行测试
 
    ![](imgs/2.jpg)
 
