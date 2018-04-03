@@ -69,7 +69,7 @@ def train_model(model, train_generator, validation_generator):
     """
     model.compile(loss='mse', optimizer='adam')
     model.fit_generator(train_generator, steps_per_epoch=len(train_samples) / 64, validation_data=validation_generator,
-                        validation_steps=len(validation_samples) / 64, nb_epoch=5, verbose=1)
+                        validation_steps=len(validation_samples) / 64, nb_epoch=3, verbose=1)
 
 
 if __name__ == '__main__':
@@ -77,7 +77,7 @@ if __name__ == '__main__':
     # 打乱一下数据
     samples = shuffle(samples)
     # 把数据拆分为训练集和验证集
-    train_samples, validation_samples = train_test_split(samples, test_size=0.2)
+    train_samples, validation_samples = train_test_split(samples, test_size=0.1)
     # 建立测试集和验证集数据生成器
     train_generator = next_batch(train_samples, batch_size=64)
     validation_generator = next_batch(validation_samples, batch_size=64)
